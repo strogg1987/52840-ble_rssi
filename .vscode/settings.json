@@ -1,0 +1,13 @@
+{
+    "files.associations": {
+        "zephyr.h": "c",
+        "kernel.h": "c",
+        "kernel_includes.h": "c",
+        "cpu.h": "c",
+        "arch.h": "c",
+        "arm_mpu.h": "c",
+        "arm_mpu_v7m.h": "c",
+        "cmsis.h": "c",
+        "types.h": "c"
+    }
+}
