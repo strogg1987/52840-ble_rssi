@@ -163,62 +163,104 @@ static void get_tx_power(uint8_t handle_type, uint16_t handle, int8_t *tx_pwr_lv
     net_buf_unref(rsp);
 }
 
+
+
 static void connected(struct bt_conn *conn, uint8_t err)
 {
-    char addr[BT_ADDR_LE_STR_LEN];
-    int8_t txp;
-    int ret;
+	char addr[BT_ADDR_LE_STR_LEN];
 
-    if (err)
-    {
-        printk("Connection failed (err 0x%02x)\n", err);
-    }
-    else
-    {
-        default_conn = bt_conn_ref(conn);
-        ret = bt_hci_get_conn_handle(default_conn,
-                                     &default_conn_handle);
-        if (ret)
-        {
-            printk("No connection handle (err %d)\n", ret);
-        }
-        else
-        {
-            /* Send first at the default selected power */
-            bt_addr_le_to_str(bt_conn_get_dst(conn),
-                              addr, sizeof(addr));
-            printk("Connected via connection (%d) at %s\n",
-                   default_conn_handle, addr);
-            get_tx_power(BT_HCI_VS_LL_HANDLE_TYPE_CONN,
-                         default_conn_handle, &txp);
-            printk("Connection (%d) - Initial Tx Power = %d\n",
-                   default_conn_handle, txp);
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
 
-            set_tx_power(BT_HCI_VS_LL_HANDLE_TYPE_CONN,
-                         default_conn_handle,
-                         BT_HCI_VS_LL_TX_POWER_LEVEL_NO_PREF);
-            get_tx_power(BT_HCI_VS_LL_HANDLE_TYPE_CONN,
-                         default_conn_handle, &txp);
-            printk("Connection (%d) - Tx Power = %d\n",
-                   default_conn_handle, txp);
-        }
-    }
+	if (err) {
+		printk("Failed to connect to %s (%u)\n", addr, err);
+		return;
+	}
+
+	printk("Connected %s\n", addr);
+
+	if (bt_conn_set_security(conn, BT_SECURITY_L4)) {
+		printk("Failed to set security\n");
+	}
 }
 
 static void disconnected(struct bt_conn *conn, uint8_t reason)
 {
-    printk("Disconnected (reason 0x%02x)\n", reason);
+	char addr[BT_ADDR_LE_STR_LEN];
 
-    if (default_conn)
-    {
-        bt_conn_unref(default_conn);
-        default_conn = NULL;
-    }
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+	printk("Disconnected from %s (reason 0x%02x)\n", addr, reason);
+}
+
+static void identity_resolved(struct bt_conn *conn, const bt_addr_le_t *rpa,
+			      const bt_addr_le_t *identity)
+{
+	char addr_identity[BT_ADDR_LE_STR_LEN];
+	char addr_rpa[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(identity, addr_identity, sizeof(addr_identity));
+	bt_addr_le_to_str(rpa, addr_rpa, sizeof(addr_rpa));
+
+	printk("Identity resolved %s -> %s\n", addr_rpa, addr_identity);
+}
+
+static void security_changed(struct bt_conn *conn, bt_security_t level,
+			     enum bt_security_err err)
+{
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+	if (!err) {
+		printk("Security changed: %s level %u\n", addr, level);
+	} else {
+		printk("Security failed: %s level %u err %d\n", addr, level,
+		       err);
+	}
 }
 
 BT_CONN_CB_DEFINE(conn_callbacks) = {
-    .connected = connected,
-    .disconnected = disconnected,
+	.connected = connected,
+	.disconnected = disconnected,
+	.identity_resolved = identity_resolved,
+	.security_changed = security_changed,
+};
+
+static void auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
+{
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+	printk("Passkey for %s: %06u\n", addr, passkey);
+}
+
+static void auth_cancel(struct bt_conn *conn)
+{
+	char addr[BT_ADDR_LE_STR_LEN];
+
+	bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+
+	printk("Pairing cancelled: %s\n", addr);
+}
+
+static void pairing_complete(struct bt_conn *conn, bool bonded)
+{
+	printk("Pairing Complete\n");
+}
+
+static void pairing_failed(struct bt_conn *conn, enum bt_security_err reason)
+{
+	printk("Pairing Failed (%d). Disconnecting.\n", reason);
+	bt_conn_disconnect(conn, BT_HCI_ERR_AUTH_FAIL);
+}
+
+static struct bt_conn_auth_cb auth_cb_display = {
+	.passkey_display = auth_passkey_display,
+	.passkey_entry = NULL,
+	.cancel = auth_cancel,
+	.pairing_complete = pairing_complete,
+	.pairing_failed = pairing_failed,
 };
 
 static void bt_ready(int err)
@@ -350,8 +392,7 @@ int main(void)
     {
         printk("Bluetooth init failed (err %d)\n", err);
     }
-    unsigned int passkey = 123456;
-    err = bt_passkey_set(passkey);
+    bt_conn_auth_cb_register(&auth_cb_display);
     if (err)
     {
         printk("Bluetooth passkey set failed: (err %d)\n", err);
