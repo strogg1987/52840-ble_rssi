@@ -392,6 +392,7 @@ int main(void)
     {
         printk("Bluetooth init failed (err %d)\n", err);
     }
+    bt_passkey_set(123456U);
     bt_conn_auth_cb_register(&auth_cb_display);
     if (err)
     {
